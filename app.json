@@ -8,9 +8,15 @@
     "scheme": "ev",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "EV needs your location to find nearby EV charging stations.",
+        "NSMicrophoneUsageDescription": "EV uses your microphone to understand voice commands."
+      }
     },
+
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -18,16 +24,27 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.placely.EV"
+
+      "package": "com.placely.EV",
+
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO"
+      ]
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
       "expo-router",
+
       [
         "expo-splash-screen",
         {
@@ -40,8 +57,12 @@
           }
         }
       ],
+
       "expo-secure-store"
     ],
+
+    "jsEngine": "jsc",
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

@@ -16,7 +16,7 @@ let data = {
   password:"testpass"
 }
 const submitHandler = () => {
-  router.replace('/home');
+  router.replace('/pages/home');
 }
  
   // const submitHandler = async () => {

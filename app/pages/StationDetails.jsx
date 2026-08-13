@@ -22,7 +22,7 @@ const StationDetails = () => {
   const hasOrigin =
     Number.isFinite(originLatitude) && Number.isFinite(originLongitude);
 
-  const getStoredToken = async () => {
+  async function getStoredToken() {
     try {
       const token = await AsyncStorage.getItem("token");
       if (token) return token;
@@ -31,7 +31,7 @@ const StationDetails = () => {
       console.warn("Unable to read auth token:", err);
       return null;
     }
-  };
+  }
 
   useEffect(() => {
     const fetchStation = async () => {
