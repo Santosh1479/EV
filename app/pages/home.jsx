@@ -10,7 +10,7 @@ import {
   Alert,
   Platform,
 } from "react-native";
-
+import { router } from "expo-router";
 import axios from "axios";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -21,6 +21,8 @@ import {
 } from "expo-speech-recognition";
 
 import LocationSearchPanel from "../components/LocationSearchPanel";
+
+const Voice = ExpoSpeechRecognitionModule;
 
 /*
 |--------------------------------------------------------------------------
@@ -108,7 +110,7 @@ const Home = () => {
     } catch (error) {
       console.error(
         "Error loading profile:",
-        error?.response?.data || error.message
+        error?.response?.data || error.message,
       );
     }
   };
@@ -121,13 +123,12 @@ const Home = () => {
 
   const getUserLocation = async () => {
     try {
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
 
       if (status !== Location.PermissionStatus.GRANTED) {
         Alert.alert(
           "Location Permission",
-          "Location permission is required to find nearby charging stations. Please enable it in your Android settings."
+          "Location permission is required to find nearby charging stations. Please enable it in your Android settings.",
         );
 
         return;
@@ -143,7 +144,7 @@ const Home = () => {
       };
 
       console.log(
-        `User Location: ${coordinates.latitude}, ${coordinates.longitude}`
+        `User Location: ${coordinates.latitude}, ${coordinates.longitude}`,
       );
 
       if (isMountedRef.current) {
@@ -155,7 +156,7 @@ const Home = () => {
 
       Alert.alert(
         "Location Error",
-        "Unable to retrieve your location. Please make sure location services are enabled."
+        "Unable to retrieve your location. Please make sure location services are enabled.",
       );
     }
   };
@@ -176,7 +177,7 @@ const Home = () => {
     } catch (error) {
       console.error(
         "Error sending voice command:",
-        error?.response?.data || error.message
+        error?.response?.data || error.message,
       );
 
       return null;
@@ -232,9 +233,7 @@ const Home = () => {
       */
 
       if (category === "unrecognized") {
-        Speech.speak(
-          "Sorry, I didn't understand that. Please try again."
-        );
+        Speech.speak("Sorry, I didn't understand that. Please try again.");
       }
     } catch (error) {
       console.error("Error processing speech:", error);
@@ -280,25 +279,8 @@ const Home = () => {
   const handleSpeechEnd = async () => {
     console.log("Speech recognition ended.");
 
-    /*
-    Keep listening if the user has not turned the
-    microphone off.
-    */
-
-    if (
-      recognitionActiveRef.current &&
-      isMountedRef.current
-    ) {
-      try {
-        await Voice.start("en-US");
-
-        console.log("Speech recognition restarted.");
-      } catch (error) {
-        console.error(
-          "Could not restart speech recognition:",
-          error
-        );
-      }
+    if (isMountedRef.current) {
+      setMicOn(false);
     }
   };
 
@@ -310,9 +292,24 @@ const Home = () => {
 
   const startVoiceRecognition = async () => {
     try {
+      const permission =
+        await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          "Microphone Permission",
+          "Please allow microphone access to use voice search.",
+        );
+        return;
+      }
+
       recognitionActiveRef.current = true;
 
-      await Voice.start("en-US");
+      ExpoSpeechRecognitionModule.start({
+        lang: "en-US",
+        interimResults: false,
+        continuous: false,
+      });
 
       if (isMountedRef.current) {
         setMicOn(true);
@@ -320,10 +317,7 @@ const Home = () => {
 
       console.log("Microphone listening...");
     } catch (error) {
-      console.error(
-        "Could not start voice recognition:",
-        error
-      );
+      console.error("Could not start voice recognition:", error);
 
       recognitionActiveRef.current = false;
 
@@ -331,24 +325,15 @@ const Home = () => {
         setMicOn(false);
       }
 
-      Alert.alert(
-        "Microphone Error",
-        "Unable to start voice recognition. Please make sure microphone permission is enabled."
-      );
+      Alert.alert("Microphone Error", "Unable to start voice recognition.");
     }
   };
-
-  /*
-  |--------------------------------------------------------------------------
-  | Stop voice recognition
-  |--------------------------------------------------------------------------
-  */
 
   const stopVoiceRecognition = async () => {
     try {
       recognitionActiveRef.current = false;
 
-      await Voice.stop();
+      ExpoSpeechRecognitionModule.stop();
 
       if (isMountedRef.current) {
         setMicOn(false);
@@ -356,18 +341,9 @@ const Home = () => {
 
       console.log("Microphone stopped.");
     } catch (error) {
-      console.error(
-        "Could not stop voice recognition:",
-        error
-      );
+      console.error("Could not stop voice recognition:", error);
     }
   };
-
-  /*
-  |--------------------------------------------------------------------------
-  | Toggle microphone
-  |--------------------------------------------------------------------------
-  */
 
   const toggleMicrophone = async () => {
     if (micOn) {
@@ -376,7 +352,6 @@ const Home = () => {
       await startVoiceRecognition();
     }
   };
-
   /*
   |--------------------------------------------------------------------------
   | Voice initialization
@@ -386,37 +361,15 @@ const Home = () => {
   useEffect(() => {
     isMountedRef.current = true;
 
-    Voice.onSpeechStart = handleSpeechStart;
-    Voice.onSpeechResults = handleSpeechResults;
-    Voice.onSpeechError = handleSpeechError;
-    Voice.onSpeechEnd = handleSpeechEnd;
-
-    /*
-    IMPORTANT:
-    This starts the microphone automatically just like
-    your original web implementation.
-    */
-
-    const initializeVoice = async () => {
-      try {
-        await startVoiceRecognition();
-      } catch (error) {
-        console.error(
-          "Voice initialization failed:",
-          error
-        );
-      }
-    };
-
-    initializeVoice();
-
     return () => {
       isMountedRef.current = false;
       recognitionActiveRef.current = false;
 
-      Voice.stop().catch(() => {});
-      Voice.destroy().catch(() => {});
-      Voice.removeAllListeners();
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch (error) {
+        console.log("Speech cleanup:", error);
+      }
     };
   }, []);
 
@@ -450,14 +403,13 @@ const Home = () => {
 
   return (
     <View style={styles.container}>
-
       {/* =========================================================
           HEADER
       ========================================================= */}
 
       <View style={styles.header}>
         <Image
-          source={require("../assets/images/logo.png")}
+          source={require("../images/logo.png")}
           style={styles.logo}
           resizeMode="contain"
         />
@@ -469,17 +421,11 @@ const Home = () => {
 
       {hasActiveReservation && (
         <View style={styles.reservationContainer}>
-
-          <Text style={styles.reservationTitle}>
-            Active reservation
-          </Text>
+          <Text style={styles.reservationTitle}>Active reservation</Text>
 
           <Text style={styles.reservationText}>
             You have an active reservation for{" "}
-            <Text style={styles.bold}>
-              {profile.reservation.chargerType}
-            </Text>
-            .
+            <Text style={styles.bold}>{profile.reservation.chargerType}</Text>.
           </Text>
 
           <Text style={styles.reservationText}>
@@ -505,16 +451,13 @@ const Home = () => {
           <Text style={styles.reservationText}>
             Expires at:{" "}
             <Text style={styles.bold}>
-              {new Date(
-                profile.reservation.expiresAt
-              ).toLocaleString()}
+              {new Date(profile.reservation.expiresAt).toLocaleString()}
             </Text>
           </Text>
 
           <Text style={styles.warningText}>
             You cannot make another reservation until this expires.
           </Text>
-
         </View>
       )}
 
@@ -529,27 +472,19 @@ const Home = () => {
         style={styles.hero}
         imageStyle={styles.heroImage}
       >
-
         <View style={styles.card}>
-
           {/* TITLE */}
 
           <View style={styles.titleContainer}>
+            <Text style={styles.title}>Search a Charging Station</Text>
 
-            <Text style={styles.title}>
-              Search a Charging Station
-            </Text>
-
-            <Text style={styles.title}>
-              nearby!!!...
-            </Text>
-
+            <Text style={styles.title}>nearby!!!...</Text>
           </View>
 
           {/* LOCATION IMAGE */}
 
           <Image
-            source={require("../assets/images/location.png")}
+            source={require("../images/logo.png")}
             style={styles.locationIcon}
             resizeMode="contain"
           />
@@ -563,13 +498,9 @@ const Home = () => {
               pressed && styles.searchButtonPressed,
             ]}
           >
-            <Text style={styles.searchButtonText}>
-              SEARCH
-            </Text>
+            <Text style={styles.searchButtonText}>SEARCH</Text>
           </Pressable>
-
         </View>
-
       </ImageBackground>
 
       {/* =========================================================
@@ -577,9 +508,7 @@ const Home = () => {
       ========================================================= */}
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          trademark registered
-        </Text>
+        <Text style={styles.footerText}>trademark registered</Text>
       </View>
 
       {/* =========================================================
@@ -588,18 +517,11 @@ const Home = () => {
 
       <Pressable
         onPress={toggleMicrophone}
-        style={[
-          styles.micButton,
-          micOn && styles.micButtonActive,
-        ]}
+        style={[styles.micButton, micOn && styles.micButtonActive]}
       >
-        <Text style={styles.micIcon}>
-          {micOn ? "🎙️" : "🎤"}
-        </Text>
+        <Text style={styles.micIcon}>{micOn ? "🎙️" : "🎤"}</Text>
 
-        <Text style={styles.micText}>
-          {micOn ? "Listening..." : "Voice"}
-        </Text>
+        <Text style={styles.micText}>{micOn ? "Listening..." : "Voice"}</Text>
       </Pressable>
 
       {/* =========================================================
@@ -618,27 +540,30 @@ const Home = () => {
           },
         ]}
       >
-
         <LocationSearchPanel
           setPanelOpen={setPanelOpen}
-          setSelect={(location) => {
-            console.log(
-              "Selected location:",
-              location
-            );
+          setSelect={(station) => {
+            console.log("Selected station:", station);
+
+            router.push({
+              pathname: "/pages/page",
+              params: {
+                latitude: String(userLocation?.latitude),
+                longitude: String(userLocation?.longitude),
+                destinationLat: String(station.latitude),
+                destinationLng: String(station.longitude),
+              },
+            });
           }}
           userLocation={userLocation}
           setMicOn={setMicOn}
         />
-
       </Animated.View>
-
     </View>
   );
 };
 
 export default Home;
-
 
 /*
 |--------------------------------------------------------------------------
