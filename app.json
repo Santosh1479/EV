@@ -61,7 +61,7 @@
       "expo-secure-store"
     ],
 
-    "jsEngine": "jsc",
+    "jsEngine": "hermes",
 
     "experiments": {
       "typedRoutes": true,
