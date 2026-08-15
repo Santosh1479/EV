@@ -1,12 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  Pressable,
-  Alert,
-} from "react-native";
+import { View, Text, StyleSheet, Image, Pressable, Alert } from "react-native";
 
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -16,6 +9,8 @@ import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
+import { API_URL } from "../config/api";
+import { useRouter } from "expo-router";
 
 /*
 |--------------------------------------------------------------------------
@@ -23,12 +18,9 @@ import {
 |--------------------------------------------------------------------------
 */
 
-const API_NEAREST_URL =
-  "http://10.0.2.2:3000/maps/get-nearest-locations";
+const API_NEAREST_URL = `http://${API_URL}/maps/get-nearest-locations`;
 
-const API_STATION_VOICE_URL =
-  "http://10.0.2.2:5000/predict_station";
-
+const API_STATION_VOICE_URL = `http://${API_URL}/predict_station`;
 /*
 |--------------------------------------------------------------------------
 | Images
@@ -52,7 +44,6 @@ const PORT_IMAGE_MAP = {
   ccs: require("../images/ccs.jpg"),
   chademo: require("../images/chademo.jpg"),
 };
-
 const PLACEHOLDER_IMAGE = require("../images/placeholder.png");
 
 const LocationSearchPanel = ({
@@ -61,10 +52,10 @@ const LocationSearchPanel = ({
   userLocation,
   setMicOn,
 }) => {
+  const router = useRouter();
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [listeningForStation, setListeningForStation] =
-    useState(false);
+  const [listeningForStation, setListeningForStation] = useState(false);
 
   const recognitionActiveRef = useRef(false);
   const mountedRef = useRef(true);
@@ -81,19 +72,11 @@ const LocationSearchPanel = ({
       return PLACEHOLDER_IMAGE;
     }
 
-    const preferred = [
-      "type1",
-      "type2",
-      "ccs",
-      "chademo",
-    ].find(
-      (key) =>
-        station.portTypes?.[key]?.total > 0
+    const preferred = ["type1", "type2", "ccs", "chademo"].find(
+      (key) => station.portTypes?.[key]?.total > 0,
     );
 
-    return preferred
-      ? PORT_IMAGE_MAP[preferred]
-      : PLACEHOLDER_IMAGE;
+    return preferred ? PORT_IMAGE_MAP[preferred] : PLACEHOLDER_IMAGE;
   };
 
   /*
@@ -108,26 +91,32 @@ const LocationSearchPanel = ({
   */
 
   const selectStation = (station) => {
+    if (!station?._id) {
+      Alert.alert("Error", "Station ID is missing.");
+      return;
+    }
+
     setSelect(station);
     setPanelOpen(false);
 
     stopStationRecognition();
 
-    /*
-    |--------------------------------------------------------------
-    | IMPORTANT
-    |--------------------------------------------------------------
-    |
-    | Your old web code used:
-    |
-    | navigate(`/page?...`)
-    |
-    | In React Native, handle navigation in Home using
-    | the selected station.
-    |
-    */
+    console.log("➡️ Opening StationDetails:", station._id);
+    console.log("➡️ User Location:", userLocation);
 
-    console.log("Selected station:", station);
+    const userLat = userLocation?.latitude;
+    const userLng = userLocation?.longitude;
+    console.log("➡️ User Lat:", userLat);
+    console.log("➡️ User Lng:", userLng);
+
+    router.push({
+      pathname: "/pages/StationDetails",
+      params: {
+        stationId: String(station._id),
+        originLat: String(userLocation.latitude),
+        originLng: String(userLocation.longitude),
+      },
+    });
   };
 
   /*
@@ -138,8 +127,21 @@ const LocationSearchPanel = ({
 
   const fetchNearestLocations = async () => {
     if (!userLocation) {
+      console.log("❌ No user location");
       return;
     }
+
+    const url = `${API_URL}/maps/get-nearest-locations`;
+
+    const origin = `${userLocation.latitude},${userLocation.longitude}`;
+
+    console.log("=================================");
+    console.log("📍 USER LOCATION");
+    console.log("latitude:", userLocation.latitude);
+    console.log("longitude:", userLocation.longitude);
+    console.log("=================================");
+    console.log("🌐 API URL:", url);
+    console.log("📍 origin:", origin);
 
     try {
       setLoading(true);
@@ -148,69 +150,59 @@ const LocationSearchPanel = ({
         (await AsyncStorage.getItem("token")) ||
         (await AsyncStorage.getItem("authToken"));
 
-      const response = await axios.get(
-        API_NEAREST_URL,
-        {
-          params: {
-            origin: `${userLocation.latitude},${userLocation.longitude}`,
-          },
+      console.log("🔑 Token exists:", !!token);
 
-          headers: token
-            ? {
-                Authorization: `Bearer ${token}`,
-              }
-            : {},
+      const response = await axios.get(url, {
+        params: {
+          origin,
+        },
+        headers: token
+          ? {
+              Authorization: `Bearer ${token}`,
+            }
+          : {},
+        timeout: 10000,
+      });
+
+      console.log("✅ STATUS:", response.status);
+
+      console.log("✅ RESPONSE:", JSON.stringify(response.data, null, 2));
+
+      if (Array.isArray(response.data)) {
+        setSuggestions(response.data);
+        stationsRef.current = response.data;
+
+        console.log(`✅ Found ${response.data.length} stations`);
+
+        if (response.data.length > 0) {
+          speakResults(response.data);
+        } else {
+          Speech.speak("No charging stations were found nearby.");
         }
-      );
-
-      const data = response.data;
-
-      if (!Array.isArray(data)) {
-        console.error(
-          "Unexpected response:",
-          data
-        );
-
-        setSuggestions([]);
-        return;
-      }
-
-      if (mountedRef.current) {
-        setSuggestions(data);
-      }
-
-      stationsRef.current = data;
-
-      /*
-      | Automatically speak results
-      */
-
-      if (data.length > 0) {
-        speakResults(data);
       } else {
-        Speech.speak(
-          "No charging stations were found nearby."
-        );
+        console.error("❌ Response is not an array:", response.data);
       }
     } catch (error) {
-      console.error(
-        "Error fetching nearest locations:",
-        error?.response?.data ||
-          error?.message ||
-          error
-      );
+      console.error("❌ NEAREST STATION REQUEST FAILED");
+
+      console.error("Message:", error.message);
+
+      console.error("Code:", error.code);
+
+      console.error("Response:", error.response?.data);
+
+      console.error("Status:", error.response?.status);
 
       Alert.alert(
-        "Charging Stations",
-        "Unable to load nearby charging stations."
+        "Station Error",
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to load nearby stations.",
       );
     } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
-
   /*
   |--------------------------------------------------------------------------
   | Speak station results
@@ -236,23 +228,18 @@ const LocationSearchPanel = ({
 
       const firstStations = stations.slice(0, 3);
 
-      firstStations.forEach(
-        (station, index) => {
-          const name =
-            station.name || "Unknown station";
+      firstStations.forEach((station, index) => {
+        const name = station.name || "Unknown station";
 
-          const ports =
-            station.portsAvailable ?? 0;
+        const ports = station.portsAvailable ?? 0;
 
-          const text =
-            `Station ${index + 1}: ${name}. ` +
-            `${ports} ports available.`;
+        const text =
+          `Station ${index + 1}: ${name}. ` + `${ports} ports available.`;
 
-          Speech.speak(text, {
-            language: "en-US",
-          });
-        }
-      );
+        Speech.speak(text, {
+          language: "en-US",
+        });
+      });
 
       /*
       | Start listening after speech finishes.
@@ -261,22 +248,15 @@ const LocationSearchPanel = ({
       | starting recognition.
       */
 
-      const totalSpeechTime =
-        firstStations.length * 1800 + 1500;
+      const totalSpeechTime = firstStations.length * 1800 + 1500;
 
       setTimeout(() => {
-        if (
-          mountedRef.current &&
-          stationsRef.current.length > 0
-        ) {
+        if (mountedRef.current && stationsRef.current.length > 0) {
           startStationRecognition();
         }
       }, totalSpeechTime);
     } catch (error) {
-      console.error(
-        "Speech error:",
-        error
-      );
+      console.error("Speech error:", error);
     }
   };
 
@@ -288,9 +268,7 @@ const LocationSearchPanel = ({
 
   const startStationRecognition = async () => {
     try {
-      if (
-        recognitionActiveRef.current
-      ) {
+      if (recognitionActiveRef.current) {
         return;
       }
 
@@ -298,9 +276,7 @@ const LocationSearchPanel = ({
         await ExpoSpeechRecognitionModule.requestPermissionsAsync();
 
       if (!permission.granted) {
-        console.log(
-          "Speech permission not granted."
-        );
+        console.log("Speech permission not granted.");
 
         return;
       }
@@ -318,14 +294,9 @@ const LocationSearchPanel = ({
         continuous: false,
       });
 
-      console.log(
-        "Listening for station selection..."
-      );
+      console.log("Listening for station selection...");
     } catch (error) {
-      console.error(
-        "Could not start station recognition:",
-        error
-      );
+      console.error("Could not start station recognition:", error);
 
       recognitionActiveRef.current = false;
 
@@ -353,10 +324,7 @@ const LocationSearchPanel = ({
         setMicOn(false);
       }
     } catch (error) {
-      console.log(
-        "Stop speech error:",
-        error
-      );
+      console.log("Stop speech error:", error);
     }
   };
 
@@ -366,21 +334,16 @@ const LocationSearchPanel = ({
   |--------------------------------------------------------------------------
   */
 
-  useSpeechRecognitionEvent(
-    "start",
-    () => {
-      if (!mountedRef.current) {
-        return;
-      }
-
-      setListeningForStation(true);
-      setMicOn(true);
-
-      console.log(
-        "Station voice recognition started."
-      );
+  useSpeechRecognitionEvent("start", () => {
+    if (!mountedRef.current) {
+      return;
     }
-  );
+
+    setListeningForStation(true);
+    setMicOn(true);
+
+    console.log("Station voice recognition started.");
+  });
 
   /*
   |--------------------------------------------------------------------------
@@ -388,23 +351,18 @@ const LocationSearchPanel = ({
   |--------------------------------------------------------------------------
   */
 
-  useSpeechRecognitionEvent(
-    "end",
-    () => {
-      recognitionActiveRef.current = false;
+  useSpeechRecognitionEvent("end", () => {
+    recognitionActiveRef.current = false;
 
-      if (!mountedRef.current) {
-        return;
-      }
-
-      setListeningForStation(false);
-      setMicOn(false);
-
-      console.log(
-        "Station voice recognition ended."
-      );
+    if (!mountedRef.current) {
+      return;
     }
-  );
+
+    setListeningForStation(false);
+    setMicOn(false);
+
+    console.log("Station voice recognition ended.");
+  });
 
   /*
   |--------------------------------------------------------------------------
@@ -412,22 +370,16 @@ const LocationSearchPanel = ({
   |--------------------------------------------------------------------------
   */
 
-  useSpeechRecognitionEvent(
-    "error",
-    (event) => {
-      console.error(
-        "Station speech recognition error:",
-        event
-      );
+  useSpeechRecognitionEvent("error", (event) => {
+    console.error("Station speech recognition error:", event);
 
-      recognitionActiveRef.current = false;
+    recognitionActiveRef.current = false;
 
-      if (mountedRef.current) {
-        setListeningForStation(false);
-        setMicOn(false);
-      }
+    if (mountedRef.current) {
+      setListeningForStation(false);
+      setMicOn(false);
     }
-  );
+  });
 
   /*
   |--------------------------------------------------------------------------
@@ -435,100 +387,70 @@ const LocationSearchPanel = ({
   |--------------------------------------------------------------------------
   */
 
-  useSpeechRecognitionEvent(
-    "result",
-    async (event) => {
-      try {
-        const transcript =
-          event?.results?.[0]?.transcript?.trim();
+  useSpeechRecognitionEvent("result", async (event) => {
+    try {
+      const transcript = event?.results?.[0]?.transcript?.trim();
 
-        if (!transcript) {
-          return;
-        }
+      if (!transcript) {
+        return;
+      }
 
-        console.log(
-          "Station voice command:",
-          transcript
-        );
+      console.log("Station voice command:", transcript);
 
-        await stopStationRecognition();
+      await stopStationRecognition();
 
-        const stations =
-          stationsRef.current;
+      const stations = stationsRef.current;
 
-        if (!stations.length) {
-          return;
-        }
+      if (!stations.length) {
+        return;
+      }
 
-        const stationNames =
-          stations.map(
-            (station) => station.name
-          );
+      const stationNames = stations.map((station) => station.name);
 
-        /*
+      /*
         | Send command to classifier
         */
 
-        const response =
-          await axios.post(
-            API_STATION_VOICE_URL,
-            {
-              text: transcript,
-              stations: stationNames,
-            }
-          );
+      const response = await axios.post(API_STATION_VOICE_URL, {
+        text: transcript,
+        stations: stationNames,
+      });
 
-        const selectedStationName =
-          response.data?.station;
+      const selectedStationName = response.data?.station;
 
-        if (!selectedStationName) {
-          Speech.speak(
-            `I could not find a station matching ${transcript}. Please try again.`,
-            {
-              language: "en-US",
-            }
-          );
-
-          return;
-        }
-
-        const selectedStation =
-          stations.find(
-            (station) =>
-              station.name
-                ?.toLowerCase()
-                .trim() ===
-              selectedStationName
-                ?.toLowerCase()
-                .trim()
-          );
-
-        if (selectedStation) {
-          selectStation(
-            selectedStation
-          );
-        } else {
-          Speech.speak(
-            `Station ${transcript} was not found. Please try again.`,
-            {
-              language: "en-US",
-            }
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Error processing station voice:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
-
+      if (!selectedStationName) {
         Speech.speak(
-          "Sorry, I could not process that station selection."
+          `I could not find a station matching ${transcript}. Please try again.`,
+          {
+            language: "en-US",
+          },
         );
+
+        return;
       }
+
+      const selectedStation = stations.find(
+        (station) =>
+          station.name?.toLowerCase().trim() ===
+          selectedStationName?.toLowerCase().trim(),
+      );
+
+      if (selectedStation) {
+        selectStation(selectedStation);
+      } else {
+        Speech.speak(`Station ${transcript} was not found. Please try again.`, {
+          language: "en-US",
+        });
+      }
+    } catch (error) {
+      console.error(
+        "Error processing station voice:",
+        error?.response?.data || error?.message || error,
+      );
+
+      Speech.speak("Sorry, I could not process that station selection.");
     }
-  );
+  });
 
   /*
   |--------------------------------------------------------------------------
@@ -546,8 +468,7 @@ const LocationSearchPanel = ({
     return () => {
       mountedRef.current = false;
 
-      recognitionActiveRef.current =
-        false;
+      recognitionActiveRef.current = false;
 
       try {
         ExpoSpeechRecognitionModule.stop();
@@ -563,10 +484,23 @@ const LocationSearchPanel = ({
   |--------------------------------------------------------------------------
   */
 
-  const handleCardClick = (
-    station
-  ) => {
-    selectStation(station);
+  const handleCardClick = (suggestion) => {
+    if (!userLocation) {
+      Alert.alert("Location Error", "Your location is not available.");
+      return;
+    }
+
+    setSelect(suggestion);
+    setPanelOpen(false);
+
+    router.push({
+      pathname: "/pages/StationDetails",
+      params: {
+        stationId: String(suggestion._id),
+        originLat: String(userLocation.latitude),
+        originLng: String(userLocation.longitude),
+      },
+    });
   };
 
   /*
@@ -577,7 +511,6 @@ const LocationSearchPanel = ({
 
   return (
     <View style={styles.container}>
-
       {/* ---------------------------------------------------------
           CLOSE BUTTON
       --------------------------------------------------------- */}
@@ -589,18 +522,14 @@ const LocationSearchPanel = ({
           setPanelOpen(false);
         }}
       >
-        <Text style={styles.closeText}>
-          ↓
-        </Text>
+        <Text style={styles.closeText}>↓</Text>
       </Pressable>
 
       {/* ---------------------------------------------------------
           TITLE
       --------------------------------------------------------- */}
 
-      <Text style={styles.title}>
-        Nearby Charging Stations
-      </Text>
+      <Text style={styles.title}>Nearby Charging Stations</Text>
 
       {/* ---------------------------------------------------------
           LOADING
@@ -617,16 +546,10 @@ const LocationSearchPanel = ({
       --------------------------------------------------------- */}
 
       {listeningForStation && (
-        <View
-          style={styles.voiceContainer}
-        >
-          <Text style={styles.voiceIcon}>
-            🎙️
-          </Text>
+        <View style={styles.voiceContainer}>
+          <Text style={styles.voiceIcon}>🎙️</Text>
 
-          <Text style={styles.voiceText}>
-            Say a station name
-          </Text>
+          <Text style={styles.voiceText}>Say a station name</Text>
         </View>
       )}
 
@@ -634,98 +557,59 @@ const LocationSearchPanel = ({
           EMPTY
       --------------------------------------------------------- */}
 
-      {!loading &&
-        suggestions.length === 0 && (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              No charging stations found.
-            </Text>
-          </View>
-        )}
+      {!loading && suggestions.length === 0 && (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No charging stations found.</Text>
+        </View>
+      )}
 
       {/* ---------------------------------------------------------
           STATION LIST
       --------------------------------------------------------- */}
 
       <View style={styles.list}>
-        {suggestions.map(
-          (station, index) => (
-            <Pressable
-              key={
-                station._id ||
-                station.id ||
-                index
-              }
-              onPress={() =>
-                handleCardClick(
-                  station
-                )
-              }
-              style={({ pressed }) => [
-                styles.card,
-                pressed &&
-                  styles.cardPressed,
-              ]}
-            >
+        {suggestions.map((station, index) => (
+          <Pressable
+            key={station._id || station.id || index}
+            onPress={() => handleCardClick(station)}
+            style={({ pressed }) => [
+              styles.card,
+              pressed && styles.cardPressed,
+            ]}
+          >
+            {/* IMAGE */}
 
-              {/* IMAGE */}
+            <View style={styles.imageContainer}>
+              <Image
+                source={getStationImage(station)}
+                style={styles.stationImage}
+                resizeMode="cover"
+              />
+            </View>
 
-              <View style={styles.imageContainer}>
-                <Image
-                  source={getStationImage(
-                    station
-                  )}
-                  style={styles.stationImage}
-                  resizeMode="cover"
-                />
-              </View>
+            {/* INFORMATION */}
 
-              {/* INFORMATION */}
+            <View style={styles.info}>
+              <Text style={styles.stationName} numberOfLines={2}>
+                {station.name || "Charging Station"}
+              </Text>
 
-              <View style={styles.info}>
-                <Text
-                  style={styles.stationName}
-                  numberOfLines={2}
-                >
-                  {station.name ||
-                    "Charging Station"}
-                </Text>
+              <Text style={styles.tapText}>Tap to view route</Text>
+            </View>
 
-                <Text
-                  style={styles.tapText}
-                >
-                  Tap to view route
-                </Text>
-              </View>
+            {/* RIGHT SIDE */}
 
-              {/* RIGHT SIDE */}
+            <View style={styles.rightInfo}>
+              <Text style={styles.portsText}>
+                {station.portsAvailable ?? 0} Ports
+              </Text>
 
-              <View
-                style={styles.rightInfo}
-              >
-                <Text
-                  style={
-                    styles.portsText
-                  }
-                >
-                  {station.portsAvailable ??
-                    0}{" "}
-                  Ports
-                </Text>
-
-                <Text
-                  style={
-                    styles.distanceText
-                  }
-                >
-                  {station.distance ??
-                    "--"}{" "}
-                  KM
-                </Text>
-              </View>
-            </Pressable>
-          )
-        )}
+              <Text style={styles.distanceText}>
+                {station.distance ?? "--"} KM
+              </Text>
+            </View>
+          </Pressable>
+        ))}
       </View>
     </View>
   );
